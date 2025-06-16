@@ -1,0 +1,52 @@
+{
+  "name": "nestjs-protobuf-es",
+  "version": "0.0.1",
+  "description": "Protobuf-ES integration for NestJS",
+  "keywords": [
+    "nestjs",
+    "protobuf",
+    "protobuf-es",
+    "buf",
+    "bufbuild",
+    "grpc"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/m4w1s/nestjs-protobuf-es.git"
+  },
+  "author": "Mawis",
+  "bin": {
+    "protoc-gen-nestjs": "bin/protoc-gen-nestjs"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "format": "biome format --write",
+    "lint": "biome lint --error-on-warnings"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.5.2",
+    "@bufbuild/protoplugin": "^2.5.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@grpc/grpc-js": "^1.0.0",
+    "@types/node": "^18.0.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@bufbuild/protobuf": "^2.5.2",
+    "@grpc/grpc-js": "^1.0.0"
+  },
+  "packageManager": "yarn@4.9.2"
+}
