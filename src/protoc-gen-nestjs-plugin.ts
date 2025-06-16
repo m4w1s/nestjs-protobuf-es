@@ -10,17 +10,23 @@ export const protocGenNestjs = createEcmaScriptPlugin({
 });
 
 interface Options {
+  /** Use valid types instead of the default ones (https://github.com/bufbuild/protobuf-es/blob/main/MANUAL.md#valid-types). */
   validTypes: boolean;
+  /** Generate an `{name}.ts` file for every proto file, with exports from `{name}_pb.ts` and `{name}_nestjs.ts`. */
+  exportFile: boolean;
 }
 
 function parseOptions(options: { key: string; value: string }[]): Options {
   const result: Options = {
     validTypes: false,
+    exportFile: false,
   };
 
   for (const { key } of options) {
     if (key === 'valid_types') {
       result.validTypes = true;
+    } else if (key === 'export_file') {
+      result.exportFile = true;
     }
   }
 
@@ -35,6 +41,18 @@ function generateTs(schema: Schema<Options>) {
 
     for (const service of file.services) {
       printService(f, service, schema.options);
+    }
+
+    if (schema.options.exportFile) {
+      const exportFile = schema.generateFile(`${file.name}.ts`);
+      // biome-ignore lint/style/noNonNullAssertion: `paths` has at least 1 element
+      const importName = file.name.split('/').at(-1)!;
+
+      exportFile.print`export * from "./${importName}_pb";`;
+
+      if (file.services.length !== 0) {
+        exportFile.print`export * from "./${importName}_nestjs";`;
+      }
     }
   }
 }
