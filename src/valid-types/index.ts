@@ -1,0 +1,52 @@
+// Copyright 2021-2025 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { type DescField, getOption, hasOption } from '@bufbuild/protobuf';
+import { FeatureSet_FieldPresence } from '@bufbuild/protobuf/wkt';
+import { Ignore, field as ext_field, message as ext_message } from './pb';
+
+/**
+ * Returns true if the field is required by protovalidate.
+ *
+ * Note that this function only applies to message fields (singular, repeated, map),
+ * and always returns false for other field types.
+ */
+export function isProtovalidateRequired(descField: DescField): boolean {
+  if (!hasOption(descField, ext_field)) {
+    return false;
+  }
+  const messageRules = getOption(descField.parent, ext_message);
+  if (messageRules.disabled) {
+    return false;
+  }
+  const fieldRules = getOption(descField, ext_field);
+  if (fieldRules.ignore === Ignore.ALWAYS) {
+    return false;
+  }
+  return fieldRules.required;
+}
+
+/**
+ * Returns true if the field has the proto2 `required` label, or the Edition
+ * feature field_presence = LEGACY_REQUIRED.
+ *
+ * Note that this function only applies to singular message fields, and always
+ * returns false for other fields.
+ */
+export function isLegacyRequired(descField: DescField): boolean {
+  return (
+    descField.fieldKind === 'message' &&
+    descField.presence === FeatureSet_FieldPresence.LEGACY_REQUIRED
+  );
+}

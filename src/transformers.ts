@@ -1,13 +1,20 @@
-import type { DescMessage, DescField, MessageShape, MessageInitShape } from '@bufbuild/protobuf';
-import { create, clone, isMessage } from '@bufbuild/protobuf';
+import type {
+  DescField,
+  DescMessage,
+  MessageInitShape,
+  MessageShape,
+  MessageValidType,
+} from '@bufbuild/protobuf';
+import { clone, create, isMessage } from '@bufbuild/protobuf';
 import {
+  type ReflectMessage,
+  isReflectMessage,
   reflect,
   scalarZeroValue,
-  isReflectMessage,
-  type ReflectMessage,
 } from '@bufbuild/protobuf/reflect';
-import { timestampFromDate, timestampDate, type Timestamp } from '@bufbuild/protobuf/wkt';
-import type { MessageInit, PopulatedMessage, MessagePopulationOptions } from './types';
+import { type Timestamp, timestampDate, timestampFromDate } from '@bufbuild/protobuf/wkt';
+import type { MessageInit, MessagePopulationOptions, PopulatedMessage } from './types';
+import { isLegacyRequired, isProtovalidateRequired } from './valid-types';
 
 /**
  * Create a new message instance.
@@ -71,24 +78,36 @@ export function populate<Desc extends DescMessage, Options extends MessagePopula
   schema: Desc,
   message: MessageShape<Desc>,
   options?: Options,
-): PopulatedMessage<MessageShape<Desc>, Options> {
-  return populateInPlace(schema, clone(schema, message), options);
+): PopulatedMessage<
+  Options['validTypes'] extends false ? MessageShape<Desc> : MessageValidType<Desc>,
+  Options
+> {
+  const opts = { ...options } as Options;
+
+  if (opts.validTypes == null) {
+    opts.validTypes = true;
+  }
+
+  return populateInPlace(schema, clone(schema, message), opts);
 }
 
 function populateInPlace<Desc extends DescMessage, Options extends MessagePopulationOptions>(
   schema: Desc,
   message: MessageShape<Desc> | ReflectMessage,
-  options?: Options,
-): PopulatedMessage<MessageShape<Desc>, Options> {
+  options: Options,
+): PopulatedMessage<
+  Options['validTypes'] extends false ? MessageShape<Desc> : MessageValidType<Desc>,
+  Options
+> {
   const r = isReflectMessage(message) ? message : reflect(schema, message, false);
 
   if (schema.typeName === 'google.protobuf.Timestamp') {
-    if (options?.jsDate) {
-      return timestampDate(r.message as Timestamp) as PopulatedMessage<MessageShape<Desc>, Options>;
+    if (options.jsDates) {
+      return timestampDate(r.message as Timestamp) as never;
     }
 
     // Timestamp already has every field populated.
-    return r.message as unknown as PopulatedMessage<MessageShape<Desc>, Options>;
+    return r.message as never;
   }
 
   for (const member of r.members) {
@@ -105,7 +124,7 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
     }
 
     if (field.fieldKind === 'message') {
-      if (options?.message || (options?.jsDate && r.isSet(field))) {
+      if (options.messages || (options.jsDates && r.isSet(field)) || isRequired(field, options)) {
         r.set(field, populateInPlace(field.message, r.get(field), options));
       }
     } else {
@@ -116,18 +135,18 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
         : target[field.localName];
 
       if (field.fieldKind === 'scalar') {
-        if (options?.scalar && value === undefined) {
+        if (value === undefined && (options.scalars || isRequired(field, options))) {
           r.set(field, scalarZeroValue(field.scalar, field.longAsString));
         }
       } else if (field.fieldKind === 'enum') {
-        if (options?.scalar && value === undefined) {
+        if (value === undefined && (options.scalars || isRequired(field, options))) {
           r.set(field, field.enum.values[0].number);
         }
       } else if (
         (field.fieldKind === 'map' && field.mapKind === 'message') ||
         (field.fieldKind === 'list' && field.listKind === 'message')
       ) {
-        if (options?.message || options?.jsDate) {
+        if (options.validTypes || options.messages || options.jsDates) {
           const mapOrList = r.get(field);
 
           for (const entry of mapOrList.entries()) {
@@ -144,5 +163,11 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
     }
   }
 
-  return r.message as unknown as PopulatedMessage<MessageShape<Desc>, Options>;
+  return r.message as never;
+}
+
+function isRequired(field: DescField, options: MessagePopulationOptions): boolean {
+  return (
+    options.validTypes !== false && (isProtovalidateRequired(field) || isLegacyRequired(field))
+  );
 }

@@ -1,5 +1,5 @@
-import { createEcmaScriptPlugin, type Schema, type GeneratedFile } from '@bufbuild/protoplugin';
-import type { DescService, DescMethod, DescMessage } from '@bufbuild/protobuf';
+import type { DescMessage, DescMethod, DescService } from '@bufbuild/protobuf';
+import { type GeneratedFile, type Schema, createEcmaScriptPlugin } from '@bufbuild/protoplugin';
 import { version } from '../package.json';
 
 export const protocGenNestjs = createEcmaScriptPlugin({
@@ -12,19 +12,33 @@ export const protocGenNestjs = createEcmaScriptPlugin({
 interface Options {
   /** Use valid types instead of the default ones (https://github.com/bufbuild/protobuf-es/blob/main/MANUAL.md#valid-types). */
   validTypes: boolean;
-  /** Generate an `{name}.ts` file for every proto file, with exports from `{name}_pb.ts` and `{name}_nestjs.ts`. */
+  /**
+   * Convert `google.protobuf.Timestamp` into JS `Date` in output types (input types already support both).
+   *
+   * NOTE: This should be used with `generateGrpcServices([], { jsDates: true })` to be in sync with the runtime.
+   */
+  jsDates: boolean;
+  /** Use strict types for message init, where all the required parameters should be defined (by default, all are optional). */
+  strictInit: boolean;
+  /** Generate a `{name}.ts` file for every proto file, with exports from `{name}_pb.ts` and `{name}_nestjs.ts` for convenience. */
   exportFile: boolean;
 }
 
 function parseOptions(options: { key: string; value: string }[]): Options {
   const result: Options = {
     validTypes: false,
+    jsDates: false,
+    strictInit: false,
     exportFile: false,
   };
 
   for (const { key } of options) {
     if (key === 'valid_types') {
       result.validTypes = true;
+    } else if (key === 'js_dates') {
+      result.jsDates = true;
+    } else if (key === 'strict_init') {
+      result.strictInit = true;
     } else if (key === 'export_file') {
       result.exportFile = true;
     }
@@ -91,7 +105,12 @@ function printServiceMethod(
 ) {
   const Observable = f.import('Observable', 'rxjs', true);
   const Metadata = f.import('Metadata', '@grpc/grpc-js', true);
-  const MessageInit = f.import('MessageInit', 'nestjs-protobuf-es', true);
+  const PopulatedMessage = f.import('PopulatedMessage', 'nestjs-protobuf-es', true);
+  const MessageInit = f.import(
+    `${options.strictInit ? 'Strict' : ''}MessageInit`,
+    'nestjs-protobuf-es',
+    true,
+  );
   const ReqType =
     options.validTypes && !isKnownType(method.input)
       ? f.importValid(method.input)
@@ -111,11 +130,19 @@ function printServiceMethod(
   if (isClient) {
     const innerReq = [MessageInit, '<', ReqType, '>'];
     const req = isStreamReq ? [Observable, '<', ...innerReq, '>'] : innerReq;
-    const res = isStreamRes ? [Observable, '<', ResType, '>'] : ['Promise<', ResType, '>'];
+    const innerRes =
+      options.jsDates && canContainTimestamp(method.output)
+        ? [PopulatedMessage, '<', ResType, ', { jsDates: true }>']
+        : [ResType];
+    const res = isStreamRes ? [Observable, '<', ...innerRes, '>'] : ['Promise<', ...innerRes, '>'];
 
     f.print`  ${method.localName}(request${isEmpty(method.input) ? '?' : ''}: ${req}, metadata?: ${Metadata}): ${res};`;
   } else {
-    const req = isStreamReq ? [Observable, '<', ReqType, '>'] : [ReqType];
+    const innerReq =
+      options.jsDates && canContainTimestamp(method.input)
+        ? [PopulatedMessage, '<', ReqType, ', { jsDates: true }>']
+        : [ReqType];
+    const req = isStreamReq ? [Observable, '<', ...innerReq, '>'] : innerReq;
     const innerRes = isEmpty(method.output) ? ['void'] : [MessageInit, '<', ResType, '>'];
     const res = isStreamRes
       ? [Observable, '<', ...innerRes, '>']
@@ -134,13 +161,13 @@ function printServiceDecorator(f: GeneratedFile, service: DescService) {
       const isStreamReq =
         method.methodKind === 'client_streaming' || method.methodKind === 'bidi_streaming';
 
-      return `["${method.localName}", ${isStreamReq}]`;
+      return `["${method.localName}", ${+isStreamReq}]`;
     })
     .join(', ');
 
   f.print`${f.export('function', `${service.name}Methods`)}() {`;
   f.print`  return function (constructor: Function) {`;
-  f.print`    const methods: [string, boolean][] = [${methods}];`;
+  f.print`    const methods: [string, number][] = [${methods}];`;
   f.print`    for (const [method, isStream] of methods) {`;
   f.print`      const descriptor = Reflect.getOwnPropertyDescriptor(constructor.prototype, method)!;`;
   f.print`      (isStream ? ${GrpcStreamMethod} : ${GrpcMethod})("${service.name}", method)(`;
@@ -153,10 +180,14 @@ function printServiceDecorator(f: GeneratedFile, service: DescService) {
   f.print`}`;
 }
 
+function canContainTimestamp(message: DescMessage): boolean {
+  return !isKnownType(message) || message.typeName.slice(16) === 'Timestamp';
+}
+
 function isEmpty(message: DescMessage): boolean {
   return message.typeName === 'google.protobuf.Empty';
 }
 
 function isKnownType(message: DescMessage): boolean {
-  return message.typeName.startsWith('google.') || message.typeName.startsWith('buf.');
+  return message.typeName.startsWith('google.protobuf.');
 }
