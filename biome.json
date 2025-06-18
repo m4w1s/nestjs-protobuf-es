@@ -23,6 +23,9 @@
       "recommended": true,
       "suspicious": {
         "noAssignInExpressions": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "error"
       }
     }
   },

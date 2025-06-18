@@ -30,8 +30,9 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.json",
-    "format": "biome format --write",
-    "lint": "biome lint --error-on-warnings"
+    "format": "biome check --write --linter-enabled=false",
+    "lint": "biome lint --error-on-warnings",
+    "lint:fix": "biome check --write"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.5.2",
