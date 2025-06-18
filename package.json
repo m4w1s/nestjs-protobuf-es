@@ -22,8 +22,8 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "bin",
-    "dist"
+    "/bin",
+    "/dist"
   ],
   "engines": {
     "node": ">=18"
@@ -47,6 +47,11 @@
   "peerDependencies": {
     "@bufbuild/protobuf": "^2.5.2",
     "@grpc/grpc-js": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@bufbuild/protobuf": {
+      "optional": true
+    }
   },
   "packageManager": "yarn@4.9.2"
 }

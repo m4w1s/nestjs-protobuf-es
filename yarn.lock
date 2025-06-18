@@ -499,6 +499,9 @@ __metadata:
   peerDependencies:
     "@bufbuild/protobuf": ^2.5.2
     "@grpc/grpc-js": ^1.0.0
+  peerDependenciesMeta:
+    "@bufbuild/protobuf":
+      optional: true
   bin:
     protoc-gen-nestjs: bin/protoc-gen-nestjs
   languageName: unknown
