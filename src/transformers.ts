@@ -14,7 +14,7 @@ import {
 } from '@bufbuild/protobuf/reflect';
 import { type Timestamp, timestampDate, timestampFromDate } from '@bufbuild/protobuf/wkt';
 import type { MessageInit, MessagePopulationOptions, PopulatedMessage } from './types';
-import { isLegacyRequired, isProtovalidateRequired } from './valid-types';
+import { isFieldRequired } from './valid-types';
 
 /**
  * Create a new message instance.
@@ -44,26 +44,45 @@ export function initMessage<Desc extends DescMessage>(
   const target = init as Record<string, any>;
 
   for (const member of schema.members) {
-    for (const field of member.kind === 'field' ? [member] : member.fields) {
-      const obj = field.oneof ? target[field.oneof.localName] : target;
-      const value = obj?.[field.localName];
+    let field: DescField | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: `any` is the best choice for dynamic access
+    let value: any;
 
-      if (value === undefined) continue;
+    if (member.kind === 'field') {
+      field = member;
+      value = target[field.localName];
+    } else {
+      const caseName = target[member.localName]?.case;
 
-      if (field.fieldKind === 'message') {
-        obj[field.localName] = initMessage(field.message, value);
-      } else if (field.fieldKind === 'map') {
-        if (field.mapKind !== 'message' || typeof value !== 'object' || value === null) continue;
+      if (caseName === undefined) continue;
 
-        for (const key of Object.keys(value)) {
-          value[key] = initMessage(field.message, value[key]);
-        }
-      } else if (field.fieldKind === 'list') {
-        if (field.listKind !== 'message' || !Array.isArray(value) || value.length === 0) continue;
+      field = member.fields.find((f) => f.localName === caseName);
+      value = target[member.localName].value;
 
-        for (let i = 0; i < value.length; i++) {
-          value[i] = initMessage(field.message, value[i]);
-        }
+      if (!field) continue;
+    }
+
+    if (value === undefined) continue;
+
+    if (field.fieldKind === 'message') {
+      const msg = initMessage(field.message, value);
+
+      if (field.oneof) {
+        target[field.oneof.localName].value = msg;
+      } else {
+        target[field.localName] = msg;
+      }
+    } else if (field.fieldKind === 'map') {
+      if (field.mapKind !== 'message' || typeof value !== 'object' || value === null) continue;
+
+      for (const key of Object.keys(value)) {
+        value[key] = initMessage(field.message, value[key]);
+      }
+    } else if (field.fieldKind === 'list') {
+      if (field.listKind !== 'message' || !Array.isArray(value) || value.length === 0) continue;
+
+      for (let i = 0; i < value.length; i++) {
+        value[i] = initMessage(field.message, value[i]);
       }
     }
   }
@@ -72,7 +91,10 @@ export function initMessage<Desc extends DescMessage>(
 }
 
 /**
- * Create a deep copy of the message and let you populate its fields with defaults, or convert `Timestamp` fields to JS dates.
+ * Create a deep copy of the message and populate it and/or convert `Timestamp` fields into JS `Date`.
+ *
+ * This method may be slow because of the cloning.
+ * If you don't worry about modifying the original message, you can use `populateInPlace` instead.
  */
 export function populate<Desc extends DescMessage, Options extends MessagePopulationOptions>(
   schema: Desc,
@@ -82,19 +104,18 @@ export function populate<Desc extends DescMessage, Options extends MessagePopula
   Options['validTypes'] extends false ? MessageShape<Desc> : MessageValidType<Desc>,
   Options
 > {
-  const opts = { ...options } as Options;
-
-  if (opts.validTypes == null) {
-    opts.validTypes = true;
-  }
-
-  return populateInPlace(schema, clone(schema, message), opts);
+  return populateInPlace(schema, clone(schema, message), options);
 }
 
-function populateInPlace<Desc extends DescMessage, Options extends MessagePopulationOptions>(
+/**
+ * Deep populate the message and/or convert `Timestamp` fields into JS `Date`.
+ *
+ * This method is more performant, but mutates the original message.
+ */
+export function populateInPlace<Desc extends DescMessage, Options extends MessagePopulationOptions>(
   schema: Desc,
   message: MessageShape<Desc> | ReflectMessage,
-  options: Options,
+  options?: Options,
 ): PopulatedMessage<
   Options['validTypes'] extends false ? MessageShape<Desc> : MessageValidType<Desc>,
   Options
@@ -102,7 +123,7 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
   const r = isReflectMessage(message) ? message : reflect(schema, message, false);
 
   if (schema.typeName === 'google.protobuf.Timestamp') {
-    if (options.jsDates) {
+    if (options?.jsDates) {
       return timestampDate(r.message as Timestamp) as never;
     }
 
@@ -124,7 +145,11 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
     }
 
     if (field.fieldKind === 'message') {
-      if (options.messages || (options.jsDates && r.isSet(field)) || isRequired(field, options)) {
+      if (
+        options?.messages ||
+        (options?.jsDates && r.isSet(field)) ||
+        (options?.validTypes !== false && isFieldRequired(field))
+      ) {
         r.set(field, populateInPlace(field.message, r.get(field), options));
       }
     } else {
@@ -135,18 +160,18 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
         : target[field.localName];
 
       if (field.fieldKind === 'scalar') {
-        if (value === undefined && (options.scalars || isRequired(field, options))) {
+        if (value === undefined && options?.scalars) {
           r.set(field, scalarZeroValue(field.scalar, field.longAsString));
         }
       } else if (field.fieldKind === 'enum') {
-        if (value === undefined && (options.scalars || isRequired(field, options))) {
+        if (value === undefined && options?.scalars) {
           r.set(field, field.enum.values[0].number);
         }
       } else if (
         (field.fieldKind === 'map' && field.mapKind === 'message') ||
         (field.fieldKind === 'list' && field.listKind === 'message')
       ) {
-        if (options.validTypes || options.messages || options.jsDates) {
+        if (options?.validTypes !== false || options.messages || options.jsDates) {
           const mapOrList = r.get(field);
 
           for (const entry of mapOrList.entries()) {
@@ -164,10 +189,4 @@ function populateInPlace<Desc extends DescMessage, Options extends MessagePopula
   }
 
   return r.message as never;
-}
-
-function isRequired(field: DescField, options: MessagePopulationOptions): boolean {
-  return (
-    options.validTypes !== false && (isProtovalidateRequired(field) || isLegacyRequired(field))
-  );
 }

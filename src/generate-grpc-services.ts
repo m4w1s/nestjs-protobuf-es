@@ -7,7 +7,7 @@ import {
   toBinary,
 } from '@bufbuild/protobuf';
 import type { MethodDefinition, ServiceDefinition } from '@grpc/grpc-js';
-import { initMessage, populate } from './transformers';
+import { initMessage, populateInPlace } from './transformers';
 import type { MessagePopulationOptions } from './types';
 
 /**
@@ -57,6 +57,6 @@ function createSerializer(schema: DescMessage) {
 
 function createDeserializer(schema: DescMessage, options?: MessagePopulationOptions) {
   return (bytes: Buffer) => {
-    return populate(schema, fromBinary(schema, bytes), options);
+    return populateInPlace(schema, fromBinary(schema, bytes), options);
   };
 }
