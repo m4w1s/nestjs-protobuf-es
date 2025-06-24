@@ -114,11 +114,25 @@ Method handles all the nested messages, maps, lists and oneofs.
 
 ```ts
 interface Options {
-  /** Populate scalar fields with defaults. */
-  scalar?: boolean;
-  /** Populate message fields with defaults. */
-  message?: boolean;
-  /** Convert google.protobuf.Timestamp to JS dates. */
-  jsDate?: boolean;
+  /**
+   * Populate all the required fields with defaults if they are missing (default `true`).
+   *
+   * This ensures runtime message types are the same as generated valid types (https://github.com/bufbuild/protobuf-es/blob/main/MANUAL.md#valid-types).
+   */
+  validTypes?: boolean;
+  /**
+   * Populate scalar fields with defaults (default `false`).
+   */
+  scalars?: boolean;
+  /**
+   * Populate message fields with defaults (default `false`).
+   */
+  messages?: boolean;
+  /**
+   * Convert `google.protobuf.Timestamp` into JS `Date` (default `false`).
+   *
+   * NOTE: Probably you want to use this in conjunction with `js_dates` option for `protoc-gen-nestjs` to generate proper types for client and controller.
+   */
+  jsDates?: boolean;
 }
 ```
