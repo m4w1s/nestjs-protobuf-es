@@ -134,7 +134,7 @@ function printServiceMethod(
       options.jsDates && canContainTimestamp(method.output)
         ? [PopulatedMessage, '<', ResType, ', { jsDates: true }>']
         : [ResType];
-    const res = isStreamRes ? [Observable, '<', ...innerRes, '>'] : ['Promise<', ...innerRes, '>'];
+    const res = [Observable, '<', ...innerRes, '>'];
 
     f.print`  ${method.localName}(request${isEmpty(method.input) ? '?' : ''}: ${req}, metadata?: ${Metadata}): ${res};`;
   } else {
