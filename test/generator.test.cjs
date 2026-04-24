@@ -30,12 +30,16 @@ function findLine(content, pattern) {
   return line;
 }
 
-test('generator emits service interfaces', () => {
+test('generator emits service interfaces and method decorator', () => {
   const files = runGenerator();
   const content = findFile(files, '_nestjs.ts');
 
   assert.match(content, /export interface TestServiceClient/);
   assert.match(content, /export interface TestServiceController/);
+  assert.match(content, /export function TestServiceMethods\(\)/);
+  assert.match(content, /GrpcMethod\)\("TestService", method\)/);
+  assert.match(content, /\["unaryPlain", 0\]/);
+  assert.match(content, /\["clientStreamTime", 1\]/);
 });
 
 test('generator emits expected unary and streaming method types', () => {
