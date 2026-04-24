@@ -1,5 +1,5 @@
-import { type DescField, ScalarType } from '@bufbuild/protobuf';
-import { BinaryReader } from '@bufbuild/protobuf/wire';
+import { type DescField, ScalarType, type UnknownField } from '@bufbuild/protobuf';
+import { BinaryReader, WireType } from '@bufbuild/protobuf/wire';
 import { FeatureSet_FieldPresence } from '@bufbuild/protobuf/wkt';
 
 const PV_EXT_NUMBER = 1159;
@@ -12,7 +12,7 @@ const PV_MESSAGE_RULES_MAP = new Map([[1, { name: 'disabled', type: ScalarType.B
 const IS_FIELD_REQUIRED_CACHE = new WeakMap<DescField, boolean>();
 
 /**
- * Returns true if the field is required by protovalidate or has the proto2 `required` label, or the Edition
+ * Returns true if the field is required by protovalidate, has the proto2 `required` label, or the Edition
  * feature field_presence = LEGACY_REQUIRED.
  *
  * Results for each field are cached for performance reasons.
@@ -32,38 +32,25 @@ export function isFieldRequired(field: DescField): boolean {
 /**
  * Returns true if the field is required by protovalidate.
  *
- * Note that this function only applies to message fields (singular, repeated, map),
- * and always returns false for other field types.
+ * Note that the protovalidate `required` rule is commonly used for fields with explicit presence.
  */
 function isProtoValidateRequired(field: DescField): boolean {
-  if (!field.proto.options?.$unknown) {
-    return false;
-  }
-
-  let fieldRules: { required?: boolean; ignore?: number } = {};
-
-  for (const uf of field.proto.options.$unknown) {
-    if (uf.no !== PV_EXT_NUMBER) continue;
-
-    fieldRules = { ...extractFields(uf.data, PV_FIELD_RULES_MAP) };
-  }
+  const fieldRules = extractExtensionFields<{ required?: boolean; ignore?: number }>(
+    field.proto.options?.$unknown,
+    PV_FIELD_RULES_MAP,
+  );
 
   if (!fieldRules.required || fieldRules.ignore === 3) {
     return false;
   }
 
-  if (field.parent.proto.options?.$unknown) {
-    let messageRules: { disabled?: boolean } = {};
+  const messageRules = extractExtensionFields<{ disabled?: boolean }>(
+    field.parent.proto.options?.$unknown,
+    PV_MESSAGE_RULES_MAP,
+  );
 
-    for (const uf of field.parent.proto.options.$unknown) {
-      if (uf.no !== PV_EXT_NUMBER) continue;
-
-      messageRules = { ...extractFields(uf.data, PV_MESSAGE_RULES_MAP) };
-    }
-
-    if (messageRules.disabled) {
-      return false;
-    }
+  if (messageRules.disabled) {
+    return false;
   }
 
   return true;
@@ -72,14 +59,24 @@ function isProtoValidateRequired(field: DescField): boolean {
 /**
  * Returns true if the field has the proto2 `required` label, or the Edition
  * feature field_presence = LEGACY_REQUIRED.
- *
- * Note that this function only applies to singular message fields, and always
- * returns false for other fields.
  */
 function isLegacyRequired(field: DescField): boolean {
-  return (
-    field.fieldKind === 'message' && field.presence === FeatureSet_FieldPresence.LEGACY_REQUIRED
-  );
+  return field.presence === FeatureSet_FieldPresence.LEGACY_REQUIRED;
+}
+
+function extractExtensionFields<T extends Record<string, unknown>>(
+  unknownFields: readonly UnknownField[] | undefined,
+  fieldMap: ReadonlyMap<number, { name: string; type: ScalarType.INT32 | ScalarType.BOOL }>,
+): T {
+  const results: Record<string, unknown> = {};
+
+  for (const uf of unknownFields ?? []) {
+    if (uf.no !== PV_EXT_NUMBER || uf.wireType !== WireType.LengthDelimited) continue;
+
+    Object.assign(results, extractFields(uf.data, fieldMap));
+  }
+
+  return results as T;
 }
 
 function extractFields<T extends Record<string, unknown>>(
@@ -89,7 +86,6 @@ function extractFields<T extends Record<string, unknown>>(
   const reader = new BinaryReader(bytes);
   const end = reader.pos + reader.uint32();
   const results: Record<string, unknown> = {};
-  let resultSize = 0;
 
   while (reader.pos < end) {
     const [fieldNo, wireType] = reader.tag();
@@ -100,10 +96,12 @@ function extractFields<T extends Record<string, unknown>>(
       continue;
     }
 
-    results[fieldDesc.name] = readValue(reader, fieldDesc.type);
+    if (wireType !== WireType.Varint) {
+      reader.skip(wireType);
+      continue;
+    }
 
-    // Check if all fields were extracted and leave early.
-    if (++resultSize === fieldMap.size) break;
+    results[fieldDesc.name] = readValue(reader, fieldDesc.type);
   }
 
   return results as T;

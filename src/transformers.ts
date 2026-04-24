@@ -7,8 +7,8 @@ import type {
 } from '@bufbuild/protobuf';
 import { clone, create, isMessage } from '@bufbuild/protobuf';
 import {
-  type ReflectMessage,
   isReflectMessage,
+  type ReflectMessage,
   reflect,
   scalarZeroValue,
 } from '@bufbuild/protobuf/reflect';
@@ -20,6 +20,8 @@ import { isFieldRequired } from './valid-types';
  * Create a new message instance.
  *
  * This is similar to `create` from `@bufbuild/protobuf`, with the difference that it handles JS dates and converts them to `Timestamp`.
+ *
+ * NOTE: This method normalizes nested message values in place before passing them to `create`.
  */
 export function initMessage<Desc extends DescMessage>(
   schema: Desc,
@@ -147,31 +149,36 @@ export function populateInPlace<Desc extends DescMessage, Options extends Messag
     if (field.fieldKind === 'message') {
       if (
         options?.messages ||
-        (options?.jsDates && r.isSet(field)) ||
+        (r.isSet(field) && (options?.scalars || options?.jsDates)) ||
         (options?.validTypes !== false && isFieldRequired(field))
       ) {
         r.set(field, populateInPlace(field.message, r.get(field), options));
       }
     } else {
-      // biome-ignore lint/suspicious/noExplicitAny: `any` is the best choice for dynamic access
-      const target = r.message as Record<string, any>;
-      const value: unknown = field.oneof
-        ? target[field.oneof.localName].value
-        : target[field.localName];
-
       if (field.fieldKind === 'scalar') {
-        if (value === undefined && options?.scalars) {
+        if (
+          !r.isSet(field) &&
+          (options?.scalars || (options?.validTypes !== false && isFieldRequired(field)))
+        ) {
           r.set(field, scalarZeroValue(field.scalar, field.longAsString));
         }
       } else if (field.fieldKind === 'enum') {
-        if (value === undefined && options?.scalars) {
+        if (
+          !r.isSet(field) &&
+          (options?.scalars || (options?.validTypes !== false && isFieldRequired(field)))
+        ) {
           r.set(field, field.enum.values[0].number);
         }
       } else if (
         (field.fieldKind === 'map' && field.mapKind === 'message') ||
         (field.fieldKind === 'list' && field.listKind === 'message')
       ) {
-        if (options?.validTypes !== false || options.messages || options.jsDates) {
+        if (
+          options?.validTypes !== false ||
+          options?.messages ||
+          options?.scalars ||
+          options?.jsDates
+        ) {
           const mapOrList = r.get(field);
 
           for (const entry of mapOrList.entries()) {
