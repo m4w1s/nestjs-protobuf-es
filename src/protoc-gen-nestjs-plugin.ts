@@ -1,5 +1,5 @@
 import type { DescMessage, DescMethod, DescService } from '@bufbuild/protobuf';
-import { type GeneratedFile, type Schema, createEcmaScriptPlugin } from '@bufbuild/protoplugin';
+import { createEcmaScriptPlugin, type GeneratedFile, type Schema } from '@bufbuild/protoplugin';
 import { version } from '../package.json';
 
 export const protocGenNestjs = createEcmaScriptPlugin({
@@ -32,19 +32,25 @@ function parseOptions(options: { key: string; value: string }[]): Options {
     exportFile: false,
   };
 
-  for (const { key } of options) {
+  for (const { key, value } of options) {
     if (key === 'valid_types') {
-      result.validTypes = true;
+      result.validTypes = isEnabledOption(value);
     } else if (key === 'js_dates') {
-      result.jsDates = true;
+      result.jsDates = isEnabledOption(value);
     } else if (key === 'strict_init') {
-      result.strictInit = true;
+      result.strictInit = isEnabledOption(value);
     } else if (key === 'export_file') {
-      result.exportFile = true;
+      result.exportFile = isEnabledOption(value);
     }
   }
 
   return result;
+}
+
+function isEnabledOption(value: string | undefined): boolean {
+  const normalized = value?.toLowerCase();
+
+  return normalized !== 'false' && normalized !== '0';
 }
 
 function generateTs(schema: Schema<Options>) {
@@ -181,7 +187,30 @@ function printServiceDecorator(f: GeneratedFile, service: DescService) {
 }
 
 function canContainTimestamp(message: DescMessage): boolean {
-  return !isKnownType(message) || message.typeName.slice(16) === 'Timestamp';
+  return canContainTimestampInner(message, new WeakSet());
+}
+
+function canContainTimestampInner(message: DescMessage, visited: WeakSet<DescMessage>): boolean {
+  if (message.typeName === 'google.protobuf.Timestamp') {
+    return true;
+  }
+  if (isKnownType(message) || visited.has(message)) {
+    return false;
+  }
+
+  visited.add(message);
+
+  for (const field of message.fields) {
+    if (field.fieldKind === 'message') {
+      if (canContainTimestampInner(field.message, visited)) return true;
+    } else if (field.fieldKind === 'list' && field.listKind === 'message') {
+      if (canContainTimestampInner(field.message, visited)) return true;
+    } else if (field.fieldKind === 'map' && field.mapKind === 'message') {
+      if (canContainTimestampInner(field.message, visited)) return true;
+    }
+  }
+
+  return false;
 }
 
 function isEmpty(message: DescMessage): boolean {
