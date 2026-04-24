@@ -32,7 +32,8 @@
     "build": "rimraf dist && tsc -p tsconfig.json",
     "format": "biome check --write --linter-enabled=false",
     "lint": "biome lint --error-on-warnings",
-    "lint:fix": "biome check --write"
+    "lint:fix": "biome check --write",
+    "test": "rimraf dist && tsc -p tsconfig.json && node --test test/*.test.cjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",
